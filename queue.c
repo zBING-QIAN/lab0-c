@@ -236,6 +236,7 @@ void q_reverseK(struct list_head *head, int k)
             prv = cur;
             cur = cur->next;
         } while (cur->next != nxt);
+        cur->prev = prv;
         cur = nxt;
     }
     // https://leetcode.com/problems/reverse-nodes-in-k-group/
