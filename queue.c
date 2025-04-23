@@ -5,6 +5,30 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#define likely(x) __builtin_expect(!!(x), 1)
+typedef int (*list_cmp_func_t)(struct list_head *a, struct list_head *b);
+
+
+
+inline static int cmp(struct list_head *a, struct list_head *b)
+{
+    return strcmp(list_entry(a, element_t, list)->value,
+                  list_entry(b, element_t, list)->value);
+}
+
+inline static int q_descend_cmp(struct list_head *a, struct list_head *b)
+{
+    return strcmp(list_entry(a, element_t, list)->value,
+                  list_entry(b, element_t, list)->value) < 0;
+}
+
+inline static int q_ascend_cmp(struct list_head *a, struct list_head *b)
+{
+    return strcmp(list_entry(a, element_t, list)->value,
+                  list_entry(b, element_t, list)->value) > 0;
+}
+
 /* Create an empty queue */
 struct list_head *q_new()
 {
@@ -144,11 +168,7 @@ bool q_delete_mid(struct list_head *head)
     // https://leetcode.com/problems/delete-the-middle-node-of-a-linked-list/
     return true;
 }
-inline static int cmp(struct list_head *a, struct list_head *b)
-{
-    return strcmp(list_entry(a, element_t, list)->value,
-                  list_entry(b, element_t, list)->value);
-}
+
 /* Delete all nodes that have duplicate string */
 bool q_delete_dup(struct list_head *head)
 {
@@ -241,36 +261,6 @@ void q_reverseK(struct list_head *head, int k)
     }
     // https://leetcode.com/problems/reverse-nodes-in-k-group/
 }
-/* Sort elements of queue in ascending/descending order */
-void q_sort(struct list_head *head, bool descend)
-{
-    if (!head || list_empty(head))
-        return;
-    struct list_head *tmp, *l = head, *r = head;
-    for (int t = 1, len = 2, size = q_size(head); t < size;
-         t <<= 1, len <<= 1, l = r = head) {
-        for (int k = 0, i = 0, j = 0; k < size; k += len, i = 0, j = 0) {
-            for (j = 0; j < t; j++)
-                r = r->next;
-            while (i < t && j < len && j + k < size) {
-                if (descend ^ (cmp(l->next, r->next) > 0)) {
-                    tmp = r->next;
-                    r->next = tmp->next;
-                    tmp->next = l->next;
-                    l->next = tmp;
-                    j++;
-                } else
-                    i++;
-                l = l->next;
-            }
-            for (; j < len; j++)
-                r = r->next;
-            l = r;
-        }
-    }
-    for (l = head->next, l->prev = head; l != head; l = l->next)
-        l->next->prev = l;
-}
 /* Remove every node which has a node with a strictly less value anywhere to
  * the right side of it */
 int q_ascend(struct list_head *head)
@@ -280,7 +270,7 @@ int q_ascend(struct list_head *head)
     int res = 0;
     struct list_head *cur;
     for (cur = head->prev; cur != head; res++, cur = cur->prev) {
-        while (cur->prev != head && cmp(cur->prev, cur) > 0) {
+        while (cur->prev != head && q_ascend_cmp(cur->prev, cur)) {
             element_t *e = list_entry(cur->prev, element_t, list);
             cur->prev = cur->prev->prev;
             cur->prev->next = cur;
@@ -300,7 +290,7 @@ int q_descend(struct list_head *head)
     int res = 0;
     struct list_head *cur;
     for (cur = head->prev; cur != head; res++, cur = cur->prev) {
-        while (cur->prev != head && cmp(cur->prev, cur) < 0) {
+        while (cur->prev != head && q_descend_cmp(cur->prev, cur)) {
             element_t *e = list_entry(cur->prev, element_t, list);
             cur->prev = cur->prev->prev;
             cur->prev->next = cur;
@@ -314,7 +304,7 @@ int q_descend(struct list_head *head)
 static void merge_two(struct list_head *l,
                       struct list_head *r,
                       struct list_head *des,
-                      bool descend)
+                      list_cmp_func_t qcmp)
 {
     l = list_entry(l, queue_contex_t, chain)->q;
     r = list_entry(r, queue_contex_t, chain)->q;
@@ -335,7 +325,7 @@ static void merge_two(struct list_head *l,
     }
     r = qcur_1;
     while (qcur_1 != l && qcur_0 != r && qcur_0 != l) {
-        if (descend ^ (cmp(qcur_0, qcur_1) > 0)) {
+        if (qcmp(qcur_0, qcur_1)) {
             des = qcur_1->next;
             qcur_1->next->prev = qcur_1->prev;
             qcur_1->prev->next = qcur_1->next;
@@ -353,17 +343,15 @@ static void merge_two(struct list_head *l,
 
 /* Merge all the queues into one sorted queue, which is in ascending/descending
  * order */
-int q_merge(struct list_head *head, bool descend)
+static int _q_merge(struct list_head *head, list_cmp_func_t qcmp)
 {
-    if (!head)
-        return 0;
     int chain_size = q_size(head);
     struct list_head *l, *r, *save;
     for (int t = 1, i = 0; t < chain_size; t <<= 1, i = 0) {
         l = head->next, r = head->next->next, save = head->next;
         for (; i < chain_size; l = r->next, r = r->next->next, i += (t << 1)) {
             if (t + i < chain_size)
-                merge_two(l, r, save, descend);
+                merge_two(l, r, save, qcmp);
             else {
                 if (save != l) {
                     l = list_entry(l, queue_contex_t, chain)->q;
@@ -381,4 +369,155 @@ int q_merge(struct list_head *head, bool descend)
 
     // https://leetcode.com/problems/merge-k-sorted-lists/
     return q_size(list_entry(head->next, queue_contex_t, chain)->q);
+}
+
+
+
+int q_merge(struct list_head *head, bool descend)
+{
+    if (!head)
+        return 0;
+    if (descend)
+        return _q_merge(head, q_descend_cmp);
+    else
+        return _q_merge(head, q_ascend_cmp);
+}
+
+
+/* Sort elements of queue in ascending/descending order */
+
+static struct list_head *merge(struct list_head *a,
+                               struct list_head *b,
+                               list_cmp_func_t qcmp)
+{
+    struct list_head *head = NULL, **tail = &head;
+
+    for (;;) {
+        /* if equal, take 'a' -- important for sort stability */
+        if (!qcmp(a, b)) {
+            *tail = a;
+            tail = &a->next;
+            a = a->next;
+            if (!a) {
+                *tail = b;
+                break;
+            }
+        } else {
+            *tail = b;
+            tail = &b->next;
+            b = b->next;
+            if (!b) {
+                *tail = a;
+                break;
+            }
+        }
+    }
+    return head;
+}
+
+static void merge_final(struct list_head *head,
+                        struct list_head *a,
+                        struct list_head *b,
+                        list_cmp_func_t qcmp)
+{
+    struct list_head *tail = head;
+    uint8_t count = 0;
+
+    for (;;) {
+        /* if equal, take 'a' -- important for sort stability */
+        if (!qcmp(a, b)) {
+            tail->next = a;
+            a->prev = tail;
+            tail = a;
+            a = a->next;
+            if (!a)
+                break;
+        } else {
+            tail->next = b;
+            b->prev = tail;
+            tail = b;
+            b = b->next;
+            if (!b) {
+                b = a;
+                break;
+            }
+        }
+    }
+
+    /* Finish linking remainder of list b on to tail */
+    tail->next = b;
+    do {
+        if (unlikely(!++count))
+            qcmp(b, b);
+        b->prev = tail;
+        tail = b;
+        b = b->next;
+    } while (b);
+
+    /* And the final links to make a circular doubly-linked list */
+    tail->next = head;
+    head->prev = tail;
+}
+
+void _q_sort(struct list_head *head, list_cmp_func_t qcmp)
+{
+    struct list_head *list = head->next, *pending = NULL;
+    size_t count = 0; /* Count of pending */
+
+    if (list == head->prev) /* Zero or one elements */
+        return;
+
+    /* Convert to a null-terminated singly-linked list. */
+    head->prev->next = NULL;
+
+
+    do {
+        size_t bits;
+        struct list_head **tail = &pending;
+
+        /* Find the least-significant clear bit in count */
+        for (bits = count; bits & 1; bits >>= 1)
+            tail = &(*tail)->prev;
+        /* Do the indicated merge */
+        if (likely(bits)) {
+            struct list_head *a = *tail, *b = a->prev;
+
+            a = merge(b, a, qcmp);
+            /* Install the merged result in place of the inputs */
+            a->prev = b->prev;
+            *tail = a;
+        }
+
+        /* Move one element from input list to pending */
+        list->prev = pending;
+        pending = list;
+        list = list->next;
+        pending->next = NULL;
+        count++;
+    } while (list);
+
+    /* End of input; merge together all the pending lists. */
+    list = pending;
+    pending = pending->prev;
+    for (;;) {
+        struct list_head *next = pending->prev;
+
+        if (!next)
+            break;
+        list = merge(pending, list, qcmp);
+        pending = next;
+    }
+    /* The final merge, rebuilding prev links */
+    merge_final(head, pending, list, qcmp);
+}
+
+
+void q_sort(struct list_head *head, bool descend)
+{
+    if (!head || list_empty(head))
+        return;
+    if (descend)
+        _q_sort(head, q_descend_cmp);
+    else
+        _q_sort(head, q_ascend_cmp);
 }
