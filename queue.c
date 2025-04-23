@@ -397,24 +397,24 @@ int end_bits(int t)
     return res;
 }
 
-// version 2
-void _q_sort(struct list_head *head, list_cmp_func_t qcmp)
+// final version
+static void _q_sort(struct list_head *head, list_cmp_func_t qcmp)
 {
-    if (!head || list_empty(head))
-        return;
-    struct list_head *tmp, *l, *r, *cur = head, *nxt = head->next;
-    for (int t = 0; cur->next != head; t++) {
-        nxt = nxt->next;
-        int bits = (nxt == head) ? end_bits(t) : t;
-        for (; bits & 1; bits >>= 1) {
-            r = cur;
+    struct list_head *tmp, *l, *r, *cur = head, *nxt = head->next->next;
+    for (int t = 0; cur->next != head; t++, nxt = nxt->next) {
+        int bits = (nxt != head) ? t : end_bits(t);
+        for (r = cur; bits & 1; bits >>= 1, r = cur) {
             cur = l = cur->prev;
             while (l != r && r->next != nxt) {
-                if (qcmp(l->next, r->next)) {
-                    tmp = r->next;
+                for (tmp = r; tmp->next != nxt && qcmp(l->next, tmp->next);
+                     tmp = tmp->next)
+                    ;
+                if (tmp != r) {
+                    r->prev = r->next;
                     r->next = tmp->next;
                     tmp->next = l->next;
-                    l->next = tmp;
+                    l->next = r->prev;
+                    l = tmp;
                 }
                 l = l->next;
             }
